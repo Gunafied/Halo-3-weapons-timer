@@ -1,0 +1,204 @@
+import time
+import threading
+import pyttsx3
+import pygame
+import tkinter as tk
+from tkinter import messagebox
+from PIL import Image, ImageTk  # Import Pillow modules
+
+# Initialize the TTS engine and sound
+tts_engine = pyttsx3.init()
+tts_lock = threading.Lock()
+
+# Set the TTS voice to Microsoft Zira
+voices = tts_engine.getProperty('voices')
+for voice in voices:
+    if "Zira" in voice.name:
+        tts_engine.setProperty('voice', voice.id)
+        break
+
+# Initialize pygame for beep sounds
+pygame.mixer.init()
+pygame.mixer.set_num_channels(1)
+
+# Load a beep sound
+beep_sound = pygame.mixer.Sound("Halo Combat Evolved Respawn Sound.mp3")
+
+# Dictionary of maps and their respective times
+map_times = {
+    "Narrows": {"Snipe": (2, 31), "Rockets": (3, 3)},
+    "The Pit": {"Snipe": (2, 31), "Rockets": (3, 3)},
+    "Construct": {"Snipe": (2, 31), "Rockets": (3, 3)},
+    "Guardian": {"Snipe": (2, 31), "Rockets": (3, 3)}
+}
+
+# Dictionary of map images
+map_images = {
+    "narrows": "Narrows.webp",
+    "the pit": "Pit.webp",
+    "construct": "Construct.webp",
+    "guardian": "Guardian.webp",
+    "halo": "Halo.webp"  # This key must match what's passed to change_background
+}
+
+# Global variable to manage timer threads
+stop_threads = False
+
+def speak(text):
+    with tts_lock:
+        tts_engine.say(text)
+        tts_engine.runAndWait()
+
+def speak_async(text):
+    threading.Thread(target=speak, args=(text,)).start()
+
+def alert(event_name):
+    message = f"{event_name} is ready!"
+    alert_window = tk.Toplevel(root)
+    alert_window.title("Alert")
+    alert_window.geometry("250x100")
+    alert_label = tk.Label(alert_window, text=message, font=("Arial", 14))
+    alert_label.pack(pady=20)
+    alert_window.after(2000, alert_window.destroy)
+    speak_async(message)
+
+def play_beep():
+    beep_sound.play()
+
+def countdown(event_name, minutes, seconds):
+    global stop_threads
+    total_seconds = minutes * 60 + seconds
+    
+    while not stop_threads:
+        current_seconds = total_seconds
+        while current_seconds > 0 and not stop_threads:
+            mins, secs = divmod(current_seconds, 60)
+            time_format = f'{mins:02d}:{secs:02d}'
+            
+            if event_name == "Sniper":
+                sniper_timer_label.config(text=f"Sniper Timer\nTime remaining: {time_format}")
+            elif event_name == "Rockets":
+                rockets_timer_label.config(text=f"Rockets Timer\nTime remaining: {time_format}")
+            elif event_name == "Custom":
+                custom_timer_label.config(text=f"Custom Timer\nTime remaining: {time_format}")
+
+            root.update()
+
+            if current_seconds <= 4:
+                play_beep()
+                
+            if current_seconds in [30, 60, 10]:
+                speak_async(f"{event_name} is up in {current_seconds} seconds.")
+
+            time.sleep(1)
+            current_seconds -= 1
+        
+        if not stop_threads:
+            alert(event_name)
+
+def start_timer():
+    global stop_threads
+    stop_threads = False  
+    map_name = map_name_entry.get().strip().lower()  
+    map_times_lower = {key.lower(): value for key, value in map_times.items()}  
+
+    if map_name not in map_times_lower:
+        messagebox.showerror("Error", "Map not found. Please enter a valid map.")
+        speak_async("Whoops, that's not in my dictionary.")
+        return
+    
+    # Change the background image based on the selected map
+    change_background(map_name)
+    
+    snipe_time = map_times_lower[map_name]["Snipe"]
+    
+    # Start the sniper timer
+    threading.Thread(target=countdown, args=("Sniper", snipe_time[0], snipe_time[1])).start()
+    
+    # Start the rockets timer only if the map is not "guardian"
+    if map_name != "guardian":
+        rockets_time = map_times_lower[map_name]["Rockets"]
+        threading.Thread(target=countdown, args=("Rockets", rockets_time[0], rockets_time[1])).start()
+    
+    # Custom timer configuration
+    if map_name == "narrows":
+        custom_timer_label.config(text="")  # Clear the custom timer label
+    else:
+        custom_time = (2, 10)  # Set your custom time for other maps
+        custom_timer_label.config(text=f"Custom Timer\nTime remaining: {custom_time[0]:02d}:{custom_time[1]:02d}")  # Display custom timer text
+    
+    speak_async(f"You have selected {map_name.capitalize()}.")
+    
+    # Start the custom timer thread
+    threading.Thread(target=countdown, args=("Custom", custom_time[0], custom_time[1])).start()
+def change_background(map_name):
+    bg_image_path = map_images[map_name]  # Get the image path for the selected map
+    bg_image = Image.open(bg_image_path)  # Load the new background image
+    bg_image = bg_image.resize((600, 400), Image.LANCZOS)  # Resize if needed
+    bg_photo = ImageTk.PhotoImage(bg_image)  # Create a PhotoImage
+    bg_label.config(image=bg_photo)  # Update the background label
+    bg_label.image = bg_photo  # Keep a reference to avoid garbage collection
+
+def stop_timer():
+    global stop_threads
+    stop_threads = True  
+
+def restart_timer():
+    stop_timer()  
+    map_name_entry.delete(0, tk.END)  
+    sniper_timer_label.config(text="")
+    rockets_timer_label.config(text="")
+    custom_timer_label.config(text="")
+    change_background("halo")
+    speak_async("Timer has been reset. Please enter a new map.")
+
+# Create the main window
+root = tk.Tk()
+root.title("Halo 3 MLG Weapon Timer")
+
+# Load and set the initial background image
+bg_image = Image.open("Halo.webp")  # Set an initial image if needed
+bg_image = bg_image.resize((600, 400), Image.LANCZOS)  # Resize if needed
+bg_photo = ImageTk.PhotoImage(bg_image)  # Create a PhotoImage
+bg_label = tk.Label(root, image=bg_photo)  # Create a label to hold the image
+bg_label.place(x=0, y=0, relwidth=1, relheight=1)  # Place it in the background
+
+# Continue with the rest of your GUI setup
+# Create a label for instructions
+welcome_label = tk.Label(root, text="Welcome to Halo 3 MLG Weapon Timer", font=("Arial", 16), bg="black", fg="white")
+welcome_label.grid(row=0, column=0, columnspan=2, pady=10)
+
+# Create a label for the map name input with black background and white text
+map_name_label = tk.Label(root, text="Enter Map Name:", bg="black", fg="white")
+map_name_label.grid(row=1, column=0)
+
+# Create an entry for map name with black background and white text
+map_name_entry = tk.Entry(root, bg="black", fg="white")
+map_name_entry.grid(row=1, column=1, pady=5)
+
+# Create a start button and restart button, side by side
+start_button = tk.Button(root, text="Start Timer", command=start_timer)
+start_button.grid(row=2, column=0, pady=10, padx=5)
+
+restart_button = tk.Button(root, text="Restart Timer", command=restart_timer)
+restart_button.grid(row=2, column=1, pady=10, padx=5)
+
+# Create labels to display timers side by side
+sniper_timer_label = tk.Label(root, text="", font=("Arial", 14), bg="black", fg="white")
+sniper_timer_label.grid(row=3, column=0, padx=20)
+
+rockets_timer_label = tk.Label(root, text="", font=("Arial", 14), bg="black", fg="white")
+rockets_timer_label.grid(row=3, column=1, padx=20)
+
+custom_timer_label = tk.Label(root, text="", font=("Arial", 14), bg="black", fg="white")  # Custom timer label
+custom_timer_label.grid(row=4, column=0, columnspan=2, pady=10)
+
+# Key bindings for Enter and Escape keys
+root.bind('<Return>', lambda event: start_timer())
+root.bind('<Escape>', lambda event: restart_timer())
+
+# Schedule the speak function to run after 1000ms (1 second)
+root.after(10, lambda: speak_async("Welcome to Halo 3 MLG Weapon Timer"))
+
+# Start the GUI event loop
+root.mainloop() 
